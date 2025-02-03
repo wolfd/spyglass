@@ -1,0 +1,24 @@
+[package]
+name = "slang"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+pest = "^2.7.12"
+pest_derive = "^2.7.12"
+lazy_static = "^1.5.0"
+polars = { version = "^0.44.2", features = [
+    "lazy",
+    "parquet",
+    "serde",
+    "ipc",
+    "dtype-struct",
+    "polars-ops",
+    "list_to_struct",
+    "list_arithmetic",
+    "trigonometry",
+    "ewma",
+] }
+polars-lazy = "^0.44.2"
+polars-core = "^0.44.2"
+anyhow = "^1.0.93"

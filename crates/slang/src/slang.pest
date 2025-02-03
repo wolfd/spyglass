@@ -1,0 +1,26 @@
+float   = @{ int ~ ("." ~ ASCII_DIGIT*) ~ (^"e" ~ int)? }
+int     = @{ ("+" | "-")? ~ INTEGER }
+number  = _{ float | int }
+INTEGER =  { ASCII_DIGIT+ }
+
+bin_op   = _{ add | subtract | multiply | divide | power | modulus }
+add      =  { "+" }
+subtract =  { "-" }
+multiply =  { "*" }
+divide   =  { "/" }
+power    =  { "^" }
+modulus  =  { "%" }
+
+basic_val  = { number | ident ~ trailer* }
+basic_expr = { ("(" ~ basic_expr ~ ")" | basic_val) ~ WHITESPACE* ~ (bin_op ~ WHITESPACE* ~ ("(" ~ basic_expr ~ ")" | basic_val) ~ WHITESPACE*)* }
+
+ident     = @{ (ASCII_ALPHA | "_")+ ~ (ASCII_ALPHANUMERIC | "_")* }
+trailer   = _{ slice | attribute | call }
+slice_sep = @{ ":" }
+slice     = ${ "[" ~ basic_expr? ~ slice_sep? ~ basic_expr? ~ "]" }
+attribute = @{ "." ~ ident }
+call      = ${ "(" ~ WHITESPACE* ~ ")" | "(" ~ WHITESPACE* ~ basic_expr ~ ("," ~ WHITESPACE* ~ basic_expr)* ~ ")" }
+
+calculation = ${ SOI ~ basic_expr ~ EOI }
+
+WHITESPACE = _{ " " | "\t" }
