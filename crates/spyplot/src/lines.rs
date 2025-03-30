@@ -10,4 +10,6 @@ pub struct Vertex {
 pub struct Uniform {
     pub x_bounds: [f32; 2],
     pub y_bounds: [f32; 2],
+    pub angle: f32,
+    pub _padding: f32,
 }
