@@ -178,7 +178,7 @@ impl Spyplot {
             line_width: 0.006,
             feather: 0.1,
             viewport_size: None, // autosize
-            bounds: egui::Rect::from_center_size(egui::pos2(0., 0.), egui::vec2(150., 300.)),
+            bounds: egui::Rect::from_center_size(egui::pos2(0., 0.), egui::vec2(10., 10.)),
             dirty: true,
             line,
         })
@@ -345,10 +345,8 @@ impl SpyplotRenderResources {
         let line_width = data.line_width;
         let feather = data.feather;
 
-        // pitch 10^(floor(log10(200)) - 1)
-
-        let grid_pitch_x = 10.0_f32.powf(bounds.x_range().span().log10().floor() - 1.0);
-        let grid_pitch_y = 10.0_f32.powf(bounds.y_range().span().log10().floor() - 1.0);
+        let grid_pitch_x = 10.0_f32.powf(bounds.x_range().span().log10().round() - 1.0);
+        let grid_pitch_y = 10.0_f32.powf(bounds.y_range().span().log10().round() - 1.0);
 
         // update uniform buffer
         queue.write_buffer(

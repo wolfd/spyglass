@@ -70,9 +70,6 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     let plot_distance_one_pixel = (vec2(1.0) / uniforms.viewport_size) * plot_size;
     let plot_distance_to_grid_start = in.plot_position.xy % uniforms.grid_pitch;
 
-    if abs(plot_distance_to_grid_start.x) < plot_distance_one_pixel.x || abs(plot_distance_to_grid_start.y) < plot_distance_one_pixel.y {
-        return vec4(1.0);
-    }
-
-    return vec4(0.0);
+    let grid_active = f32(abs(plot_distance_to_grid_start.x) < plot_distance_one_pixel.x || abs(plot_distance_to_grid_start.y) < plot_distance_one_pixel.y);
+    return vec4(vec3(grid_active).xyz * 0.5, 1.0);
 }
