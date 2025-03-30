@@ -5,8 +5,12 @@ struct VertexOut {
 };
 
 struct Uniforms {
+    viewport_size: vec2<f32>,
     x_range: vec2<f32>,
     y_range: vec2<f32>,
+
+    grid_pitch: vec2<f32>,
+
     line_width: f32,
     feather: f32,
 };

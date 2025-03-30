@@ -1,15 +1,22 @@
 struct VertexOut {
     @builtin(position) position: vec4<f32>,
     @location(0) color: vec4<f32>,
+    @location(1) plot_position: vec2<f32>,
 };
 
-// struct Uniforms {
-//     x_range: vec2<f32>,
-//     y_range: vec2<f32>,
-// };
+struct Uniforms {
+    viewport_size: vec2<f32>,
+    x_range: vec2<f32>,
+    y_range: vec2<f32>,
 
-// @group(0) @binding(0)
-// var<uniform> uniforms: Uniforms;
+    grid_pitch: vec2<f32>,
+
+    line_width: f32,
+    feather: f32,
+};
+
+@group(0) @binding(0)
+var<uniform> uniforms: Uniforms;
 
 // TODO(danny): maybe use these or get rid of them
 // they're useful for rendering 3D grids but I'm interested in 2D
@@ -50,13 +57,22 @@ fn vs_main(@builtin(vertex_index) v_idx: u32) -> VertexOut {
     out.position = vec4<f32>(v_positions[v_idx], 0.0, 1.0);
     out.color = v_colors[v_idx];
 
+    let x = mix(uniforms.x_range[0], uniforms.x_range[1], (out.position.x + 1.0) * 0.5);
+    let y = mix(uniforms.y_range[0], uniforms.y_range[1], (out.position.y + 1.0) * 0.5);
+    out.plot_position = vec2(x, y);
+
     return out;
 }
 
-const pitch: vec2<f32> = vec2<f32>(50., 50.);
-
 @fragment
 fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
-    let grid_active = f32(i32(in.position.x % pitch.x) == 0 || i32(in.position.y % pitch.y) == 0);
-    return vec4(grid_active, grid_active, grid_active, 1.0);
+    let plot_size = vec2(uniforms.x_range[1] - uniforms.x_range[0], uniforms.y_range[1] - uniforms.y_range[0]);
+    let plot_distance_one_pixel = (vec2(1.0) / uniforms.viewport_size) * plot_size;
+    let plot_distance_to_grid_start = in.plot_position.xy % uniforms.grid_pitch;
+
+    if abs(plot_distance_to_grid_start.x) < plot_distance_one_pixel.x || abs(plot_distance_to_grid_start.y) < plot_distance_one_pixel.y {
+        return vec4(1.0);
+    }
+
+    return vec4(0.0);
 }

@@ -17,6 +17,7 @@ use lines::{Uniform, Vertex};
 pub struct Spyplot {
     line_width: f32,
     feather: f32,
+    viewport_size: Option<egui::Vec2>,
     bounds: egui::Rect,
     dirty: bool,
     line: Vec<Vertex>,
@@ -176,6 +177,7 @@ impl Spyplot {
         Some(Self {
             line_width: 0.006,
             feather: 0.1,
+            viewport_size: None, // autosize
             bounds: egui::Rect::from_center_size(egui::pos2(0., 0.), egui::vec2(150., 300.)),
             dirty: true,
             line,
@@ -238,6 +240,7 @@ impl eframe::App for Spyplot {
 // The paint callback is called after finish prepare and is given access to egui's main render pass,
 // which can be used to issue draw commands.
 struct SpyplotCallback {
+    viewport_size: egui::Vec2,
     bounds: egui::Rect,
     line_width: f32,
     feather: f32,
@@ -281,6 +284,7 @@ impl Spyplot {
     ) {
         let real_size = egui::Vec2::splat(300.0);
         let (rect, response) = ui.allocate_exact_size(real_size, egui::Sense::drag());
+        self.viewport_size = Some(rect.size());
 
         let motion_scale = self.bounds.size() / real_size;
         let mut delta: f32 = 0.;
@@ -305,7 +309,7 @@ impl Spyplot {
             });
         }
 
-        ui.label(format!("delta: {}", delta));
+        ui.label(format!("viewport_size: {:?}", self.viewport_size));
 
         self.bounds = self
             .bounds
@@ -314,9 +318,10 @@ impl Spyplot {
         ui.painter().add(egui_wgpu::Callback::new_paint_callback(
             rect,
             SpyplotCallback {
+                viewport_size: self.viewport_size.unwrap_or(Vec2::new(1.0, 1.0)),
+                bounds: self.bounds,
                 line_width,
                 feather,
-                bounds: self.bounds,
 
                 dirty: new_line.is_some(),
                 line: new_line.unwrap_or_default(),
@@ -340,16 +345,22 @@ impl SpyplotRenderResources {
         let line_width = data.line_width;
         let feather = data.feather;
 
+        // pitch 10^(floor(log10(200)) - 1)
+
+        let grid_pitch_x = 10.0_f32.powf(bounds.x_range().span().log10().floor() - 1.0);
+        let grid_pitch_y = 10.0_f32.powf(bounds.y_range().span().log10().floor() - 1.0);
+
         // update uniform buffer
         queue.write_buffer(
             &self.uniform_buffer,
             0,
             bytemuck::cast_slice(&[Uniform {
+                viewport_size: [data.viewport_size.x, data.viewport_size.y],
                 x_bounds: [bounds.x_range().min, bounds.x_range().max],
                 y_bounds: [bounds.y_range().min, bounds.y_range().max],
+                grid_pitch: [grid_pitch_x, grid_pitch_y],
                 line_width,
                 feather,
-                ..Default::default()
             }]),
         );
 
