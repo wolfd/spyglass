@@ -11,11 +11,14 @@ use eframe::{
     egui_wgpu::wgpu::util::DeviceExt,
     egui_wgpu::{self, wgpu},
 };
-use lines::Uniform;
+use egui::{Pos2, Vec2};
+use lines::{Uniform, Vertex};
 
 pub struct Spyplot {
-    angle: f32,
+    line_width: f32,
     bounds: egui::Rect,
+    dirty: bool,
+    line: Vec<Vertex>,
 }
 
 impl Spyplot {
@@ -27,15 +30,15 @@ impl Spyplot {
         let device = &wgpu_render_state.device;
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("custom3d"),
+            label: Some("spyplot_line_shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("./spyplot_shader.wgsl").into()),
         });
 
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("custom3d"),
+            label: Some("spyplot_bind_group_layout"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX,
+                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: false,
@@ -49,27 +52,34 @@ impl Spyplot {
         });
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("custom3d"),
+            label: Some("spyplot_pipeline_layout"),
             bind_group_layouts: &[&bind_group_layout],
             push_constant_ranges: &[],
         });
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("custom3d"),
+            label: Some("spyplot_pipeline"),
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: None,
-                buffers: &[],
+                entry_point: Some("vs_main"),
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2],
+                }],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
                 entry_point: Some("fs_main"),
-                targets: &[Some(wgpu_render_state.target_format.into())],
+                targets: &[Some(wgpu_render_state.target_format.into())], // need to specify alpha blending?
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             }),
-            primitive: wgpu::PrimitiveState::default(),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleStrip,
+                ..Default::default()
+            },
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
@@ -77,12 +87,17 @@ impl Spyplot {
         });
 
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("custom3d"),
+            label: Some("spyplot_uniforms"),
             contents: bytemuck::cast_slice(&[Uniform::default()]),
-            // contents: bytemuck::cast_slice(&[0.0_f32; 4]), // 16 bytes aligned!
             // Mapping at creation (as done by the create_buffer_init utility) doesn't require us to to add the MAP_WRITE usage
             // (this *happens* to workaround this bug )
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::UNIFORM,
+        });
+
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("spyplot_vertex_buffer"),
+            contents: bytemuck::cast_slice(&vec![Vertex::default(); 1_000_000]),
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::VERTEX,
         });
 
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -101,15 +116,32 @@ impl Spyplot {
             .renderer
             .write()
             .callback_resources
-            .insert(TriangleRenderResources {
+            .insert(SpyplotRenderResources {
                 pipeline,
                 bind_group,
                 uniform_buffer,
+                vertex_buffer,
+                vertex_count: 0,
             });
 
+        let mut line = Vec::with_capacity(100000 * 2);
+        for x in 0..100000 {
+            let x = x as f32 / 100.0;
+            line.push(Vertex {
+                position: [x, f32::sin(x)],
+                normal: [-f32::cos(x), 1.0],
+            });
+            line.push(Vertex {
+                position: [x, f32::sin(x)],
+                normal: [f32::cos(x), -1.0],
+            });
+        }
+
         Some(Self {
-            angle: 0.0,
+            line_width: 0.006,
             bounds: egui::Rect::from_center_size(egui::pos2(0., 0.), egui::vec2(150., 300.)),
+            dirty: true,
+            line,
         })
     }
 }
@@ -126,8 +158,19 @@ impl eframe::App for Spyplot {
                 });
                 ui.label(format!("{:?}", self.bounds));
 
+                ui.add(egui::Slider::new(&mut self.line_width, 0.0..=0.01).text("Line width"));
+
                 egui::Frame::canvas(ui.style()).show(ui, |ui| {
-                    self.custom_painting(ui);
+                    self.custom_painting(
+                        ui,
+                        self.line_width,
+                        if self.dirty {
+                            Some(self.line.clone())
+                        } else {
+                            None
+                        },
+                    );
+                    self.dirty = false;
                 });
                 ui.label("Drag to rotate!");
             });
@@ -156,8 +199,12 @@ impl eframe::App for Spyplot {
 // The paint callback is called after finish prepare and is given access to egui's main render pass,
 // which can be used to issue draw commands.
 struct SpyplotCallback {
-    angle: f32,
     bounds: egui::Rect,
+    line_width: f32,
+    feather: f32,
+
+    dirty: bool,
+    line: Vec<Vertex>,
 }
 
 impl egui_wgpu::CallbackTrait for SpyplotCallback {
@@ -169,8 +216,8 @@ impl egui_wgpu::CallbackTrait for SpyplotCallback {
         _egui_encoder: &mut wgpu::CommandEncoder,
         resources: &mut egui_wgpu::CallbackResources,
     ) -> Vec<wgpu::CommandBuffer> {
-        let resources: &TriangleRenderResources = resources.get().unwrap();
-        resources.prepare(device, queue, &self.bounds, self.angle);
+        let resources: &mut SpyplotRenderResources = resources.get_mut().unwrap();
+        resources.prepare(device, queue, &self);
         Vec::new()
     }
 
@@ -180,13 +227,18 @@ impl egui_wgpu::CallbackTrait for SpyplotCallback {
         render_pass: &mut wgpu::RenderPass<'static>,
         resources: &egui_wgpu::CallbackResources,
     ) {
-        let resources: &TriangleRenderResources = resources.get().unwrap();
+        let resources: &SpyplotRenderResources = resources.get().unwrap();
         resources.paint(render_pass);
     }
 }
 
 impl Spyplot {
-    fn custom_painting(&mut self, ui: &mut egui::Ui) {
+    fn custom_painting(
+        &mut self,
+        ui: &mut egui::Ui,
+        line_width: f32,
+        new_line: Option<Vec<Vertex>>,
+    ) {
         let real_size = egui::Vec2::splat(300.0);
         let (rect, response) = ui.allocate_exact_size(real_size, egui::Sense::drag());
 
@@ -208,6 +260,7 @@ impl Spyplot {
                     .sum();
                 delta /= 100.0; // TODO(danny): I recall that different platforms have wildly different ideas for scrolling counts
 
+                // TODO(danny): scale from cursor
                 self.bounds = self.bounds.scale_from_center(1.0 + delta);
             });
         }
@@ -221,45 +274,55 @@ impl Spyplot {
         ui.painter().add(egui_wgpu::Callback::new_paint_callback(
             rect,
             SpyplotCallback {
-                angle: self.angle,
+                line_width,
+                feather: 0.1,
                 bounds: self.bounds,
+
+                dirty: new_line.is_some(),
+                line: new_line.unwrap_or_default(),
             },
         ));
     }
 }
 
-struct TriangleRenderResources {
+struct SpyplotRenderResources {
     pipeline: wgpu::RenderPipeline,
     bind_group: wgpu::BindGroup,
     uniform_buffer: wgpu::Buffer,
+    vertex_buffer: wgpu::Buffer,
+    vertex_count: u32,
 }
 
-impl TriangleRenderResources {
-    fn prepare(
-        &self,
-        _device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        bounds: &egui::Rect,
-        angle: f32,
-    ) {
-        // Update our uniform buffer with the angle from the UI
+impl SpyplotRenderResources {
+    fn prepare(&mut self, _device: &wgpu::Device, queue: &wgpu::Queue, data: &SpyplotCallback) {
+        let bounds = &data.bounds;
+        let line_width = data.line_width;
+        let feather = data.feather;
+
+        // update uniform buffer
         queue.write_buffer(
             &self.uniform_buffer,
             0,
             bytemuck::cast_slice(&[Uniform {
                 x_bounds: [bounds.x_range().min, bounds.x_range().max],
                 y_bounds: [bounds.y_range().min, bounds.y_range().max],
-                angle,
+                line_width,
+                feather,
                 ..Default::default()
             }]),
         );
+
+        if data.dirty {
+            self.vertex_count = data.line.len() as u32;
+            queue.write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&data.line));
+        }
     }
 
     fn paint(&self, render_pass: &mut wgpu::RenderPass<'_>) {
-        // Draw our triangle!
         render_pass.set_pipeline(&self.pipeline);
+        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         render_pass.set_bind_group(0, &self.bind_group, &[]);
-        render_pass.draw(0..3, 0..1);
+        render_pass.draw(0..self.vertex_count, 0..1);
     }
 }
 
