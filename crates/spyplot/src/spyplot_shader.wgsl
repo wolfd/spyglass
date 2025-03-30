@@ -14,18 +14,6 @@ struct Uniforms {
 @group(0) @binding(0)
 var<uniform> uniforms: Uniforms;
 
-var<private> v_positions: array<vec2<f32>, 3> = array<vec2<f32>, 3>(
-    vec2<f32>(0.0, 10.0),
-    vec2<f32>(10.0, -10.0),
-    vec2<f32>(-10.0, -10.0),
-);
-
-var<private> v_colors: array<vec4<f32>, 3> = array<vec4<f32>, 3>(
-    vec4<f32>(1.0, 0.0, 0.0, 1.0),
-    vec4<f32>(0.0, 1.0, 0.0, 1.0),
-    vec4<f32>(0.0, 0.0, 1.0, 1.0),
-);
-
 @vertex
 fn vs_main(
     @location(0) position: vec2<f32>,

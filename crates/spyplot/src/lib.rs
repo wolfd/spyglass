@@ -16,6 +16,7 @@ use lines::{Uniform, Vertex};
 
 pub struct Spyplot {
     line_width: f32,
+    feather: f32,
     bounds: egui::Rect,
     dirty: bool,
     line: Vec<Vertex>,
@@ -29,9 +30,14 @@ impl Spyplot {
 
         let device = &wgpu_render_state.device;
 
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        let line_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("spyplot_line_shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("./spyplot_shader.wgsl").into()),
+        });
+
+        let background_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("spyplot_background_shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("./grid_shader.wgsl").into()),
         });
 
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -51,17 +57,46 @@ impl Spyplot {
             }],
         });
 
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let background_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("spyplot_pipeline_layout"),
+                bind_group_layouts: &[&bind_group_layout],
+                push_constant_ranges: &[],
+            });
+
+        let background_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("spyplot_pipeline_background"),
+            layout: Some(&background_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &background_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &background_shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu_render_state.target_format.into())], // need to specify alpha blending?
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
+        let line_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("spyplot_pipeline_layout"),
             bind_group_layouts: &[&bind_group_layout],
             push_constant_ranges: &[],
         });
 
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let line_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("spyplot_pipeline"),
-            layout: Some(&pipeline_layout),
+            layout: Some(&line_pipeline_layout),
             vertex: wgpu::VertexState {
-                module: &shader,
+                module: &line_shader,
                 entry_point: Some("vs_main"),
                 buffers: &[wgpu::VertexBufferLayout {
                     array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
@@ -71,7 +106,7 @@ impl Spyplot {
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
-                module: &shader,
+                module: &line_shader,
                 entry_point: Some("fs_main"),
                 targets: &[Some(wgpu_render_state.target_format.into())], // need to specify alpha blending?
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
@@ -101,7 +136,7 @@ impl Spyplot {
         });
 
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("custom3d"),
+            label: Some("spyplot_bind_group"),
             layout: &bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
@@ -117,7 +152,8 @@ impl Spyplot {
             .write()
             .callback_resources
             .insert(SpyplotRenderResources {
-                pipeline,
+                background_pipeline,
+                line_pipeline,
                 bind_group,
                 uniform_buffer,
                 vertex_buffer,
@@ -139,6 +175,7 @@ impl Spyplot {
 
         Some(Self {
             line_width: 0.006,
+            feather: 0.1,
             bounds: egui::Rect::from_center_size(egui::pos2(0., 0.), egui::vec2(150., 300.)),
             dirty: true,
             line,
@@ -152,18 +189,20 @@ impl eframe::App for Spyplot {
             egui::ScrollArea::both().auto_shrink(false).show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
-                    ui.label("The triangle is being painted using ");
+                    ui.label("The plot is being painted using ");
                     ui.hyperlink_to("WGPU", "https://wgpu.rs");
                     ui.label(" (Portable Rust graphics API awesomeness)");
                 });
                 ui.label(format!("{:?}", self.bounds));
 
                 ui.add(egui::Slider::new(&mut self.line_width, 0.0..=0.01).text("Line width"));
+                ui.add(egui::Slider::new(&mut self.feather, 0.0..=2.5).text("Line feather"));
 
                 egui::Frame::canvas(ui.style()).show(ui, |ui| {
                     self.custom_painting(
                         ui,
                         self.line_width,
+                        self.feather,
                         if self.dirty {
                             Some(self.line.clone())
                         } else {
@@ -172,7 +211,7 @@ impl eframe::App for Spyplot {
                     );
                     self.dirty = false;
                 });
-                ui.label("Drag to rotate!");
+                ui.label("Drag to pan!");
             });
         });
     }
@@ -237,6 +276,7 @@ impl Spyplot {
         &mut self,
         ui: &mut egui::Ui,
         line_width: f32,
+        feather: f32,
         new_line: Option<Vec<Vertex>>,
     ) {
         let real_size = egui::Vec2::splat(300.0);
@@ -275,7 +315,7 @@ impl Spyplot {
             rect,
             SpyplotCallback {
                 line_width,
-                feather: 0.1,
+                feather,
                 bounds: self.bounds,
 
                 dirty: new_line.is_some(),
@@ -286,7 +326,8 @@ impl Spyplot {
 }
 
 struct SpyplotRenderResources {
-    pipeline: wgpu::RenderPipeline,
+    background_pipeline: wgpu::RenderPipeline,
+    line_pipeline: wgpu::RenderPipeline,
     bind_group: wgpu::BindGroup,
     uniform_buffer: wgpu::Buffer,
     vertex_buffer: wgpu::Buffer,
@@ -319,7 +360,11 @@ impl SpyplotRenderResources {
     }
 
     fn paint(&self, render_pass: &mut wgpu::RenderPass<'_>) {
-        render_pass.set_pipeline(&self.pipeline);
+        render_pass.set_pipeline(&self.background_pipeline);
+        render_pass.set_bind_group(0, &self.bind_group, &[]);
+        render_pass.draw(0..3, 0..1);
+
+        render_pass.set_pipeline(&self.line_pipeline);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         render_pass.set_bind_group(0, &self.bind_group, &[]);
         render_pass.draw(0..self.vertex_count, 0..1);
