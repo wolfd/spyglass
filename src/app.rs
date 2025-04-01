@@ -4,6 +4,7 @@ use slang::DataType;
 use slang::LazyFrame;
 use slang::PolarsError;
 use slang::PolarsResult;
+use spyplot::Spyplot;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
@@ -23,8 +24,13 @@ pub struct TemplateApp {
 
     error: Option<String>,
 
+    use_spyplot: bool,
+
     #[serde(skip)]
     xy_plot: crate::xy_plot::XYPlot,
+
+    #[serde(skip)]
+    spyplot: Option<spyplot::Spyplot>,
 }
 
 impl Default for TemplateApp {
@@ -36,7 +42,9 @@ impl Default for TemplateApp {
             x_expr: "utime".to_owned(),
             y_exprs: vec!["position.data[0]".to_owned()],
             error: None,
+            use_spyplot: false,
             xy_plot: Default::default(),
+            spyplot: None,
         }
     }
 }
@@ -57,13 +65,17 @@ impl TemplateApp {
                 return Self {
                     opened_file: stored.opened_file.clone(),
                     df,
+                    spyplot: Spyplot::new(cc),
                     ..stored
                 };
             }
             return stored;
         }
 
-        Default::default()
+        Self {
+            spyplot: Spyplot::new(cc),
+            ..Default::default()
+        }
     }
 }
 
@@ -137,7 +149,13 @@ impl eframe::App for TemplateApp {
             });
             ui.separator();
 
-            self.xy_plot.ui(ui);
+            ui.checkbox(&mut self.use_spyplot, "Use spyplot viewer");
+
+            if self.use_spyplot {
+                self.spyplot.as_mut().unwrap().ui(ui);
+            } else {
+                self.xy_plot.ui(ui);
+            }
 
             ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
                 egui::warn_if_debug_build(ui);
@@ -194,6 +212,18 @@ impl TemplateApp {
                 .next()
                 .ok_or(anyhow::anyhow!("No x_expr trace"))?
                 .data;
+
+            let points: Vec<[f32; 2]> = self
+                .xy_plot
+                .x_data
+                .iter()
+                .zip(self.xy_plot.y_series.iter().next().unwrap().1)
+                .map(|(x, y)| [*x as f32, *y as f32])
+                .collect();
+
+            let spyplot = self.spyplot.as_mut().unwrap();
+            spyplot.line = spyplot::to_vertices(points);
+            spyplot.dirty = true;
         }
 
         Ok(())

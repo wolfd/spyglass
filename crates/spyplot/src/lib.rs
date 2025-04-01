@@ -17,8 +17,8 @@ pub struct Spyplot {
     feather: f32,
     viewport_size: Option<egui::Vec2>,
     bounds: egui::Rect,
-    dirty: bool,
-    line: Vec<Vertex>,
+    pub dirty: bool,
+    pub line: Vec<Vertex>,
 }
 
 impl Spyplot {
@@ -130,7 +130,7 @@ impl Spyplot {
 
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("spyplot_vertex_buffer"),
-            contents: bytemuck::cast_slice(&vec![Vertex::default(); 1_000_000]),
+            contents: bytemuck::cast_slice(&vec![Vertex::default(); 16000000]),
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::VERTEX,
         });
 
@@ -219,6 +219,33 @@ impl eframe::App for Spyplot {
     }
 }
 
+pub fn to_vertices(points: Vec<[f32; 2]>) -> Vec<Vertex> {
+    let mut vertices = Vec::new();
+    let n = points.len();
+
+    if n < 2 {
+        return vertices;
+    }
+
+    for i in 0..n {
+        let prev = points[(i + n - 1) % n];
+        let next = points[(i + 1) % n];
+        let edge = Vec2::new(next[0] - prev[0], next[1] - prev[1]);
+        let normal = Vec2::new(-edge.y, edge.x).normalized();
+
+        vertices.push(Vertex {
+            position: [points[i][0], points[i][1]],
+            normal: [normal.x, normal.y],
+        });
+        vertices.push(Vertex {
+            position: [points[i][0], points[i][1]],
+            normal: [-normal.x, -normal.y],
+        });
+    }
+
+    vertices
+}
+
 // Callbacks in egui_wgpu have 3 stages:
 // * prepare (per callback impl)
 // * finish_prepare (once)
@@ -275,6 +302,20 @@ impl egui_wgpu::CallbackTrait for SpyplotCallback {
 }
 
 impl Spyplot {
+    pub fn ui(&mut self, ui: &mut egui::Ui) {
+        self.custom_painting(
+            ui,
+            self.line_width,
+            self.feather,
+            if self.dirty {
+                Some(self.line.clone())
+            } else {
+                None
+            },
+        );
+        self.dirty = false;
+    }
+
     fn custom_painting(
         &mut self,
         ui: &mut egui::Ui,
@@ -282,7 +323,7 @@ impl Spyplot {
         feather: f32,
         new_line: Option<Vec<Vertex>>,
     ) {
-        let real_size = egui::Vec2::splat(300.0);
+        let real_size = egui::Vec2::splat(500.0);
         let (rect, response) = ui.allocate_exact_size(real_size, egui::Sense::drag());
         self.viewport_size = Some(rect.size());
 
