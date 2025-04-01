@@ -5,13 +5,11 @@
 // The final chunk will be allocated to that size, but will basically get frozen once it reaches that size.
 pub mod lines;
 
-use std::num::NonZeroU64;
-
 use eframe::{
     egui_wgpu::wgpu::util::DeviceExt,
     egui_wgpu::{self, wgpu},
 };
-use egui::{Pos2, Vec2};
+use egui::Vec2;
 use lines::{Uniform, Vertex};
 
 pub struct Spyplot {
@@ -164,13 +162,15 @@ impl Spyplot {
         let mut line = Vec::with_capacity(100000 * 2);
         for x in 0..100000 {
             let x = x as f32 / 100.0;
+            let normal = Vec2::new(-f32::cos(x), 1.0).normalized();
+
             line.push(Vertex {
                 position: [x, f32::sin(x)],
-                normal: [-f32::cos(x), 1.0],
+                normal: [normal.x, normal.y],
             });
             line.push(Vertex {
                 position: [x, f32::sin(x)],
-                normal: [f32::cos(x), -1.0],
+                normal: [-normal.x, -normal.y],
             });
         }
 
