@@ -1,7 +1,7 @@
 use egui::epaint::Hsva;
 use egui::{Color32, ComboBox, Response, TextWrapMode};
 use egui_plot::{
-    CoordinatesFormatter, Corner, Legend, Line, LineStyle, Plot, PlotPoint, PlotPoints,
+    CoordinatesFormatter, Corner, Legend, Line, LineStyle, Plot, PlotPoint, PlotPoints, Points,
 };
 use rand::distributions::Uniform;
 use std::collections::HashMap;
@@ -12,6 +12,7 @@ pub struct XYPlot {
     proportional: bool,
     coordinates: bool,
     show_axes: bool,
+    scatter_plot: bool,
     line_style: LineStyle,
 
     plot_points: HashMap<String, Vec<PlotPoint>>,
@@ -24,6 +25,7 @@ impl Default for XYPlot {
             coordinates: true,
             show_axes: true,
             line_style: LineStyle::Solid,
+            scatter_plot: false,
 
             plot_points: HashMap::new(),
         }
@@ -37,6 +39,7 @@ impl XYPlot {
             coordinates,
             show_axes,
             line_style,
+            scatter_plot,
 
             plot_points: _,
         } = self;
@@ -49,6 +52,8 @@ impl XYPlot {
             ui.style_mut().wrap_mode = Some(TextWrapMode::Extend);
             ui.checkbox(proportional, "Proportional data axes")
                 .on_hover_text("Tick are the same size on both axes.");
+
+            ui.checkbox(scatter_plot, "Enable scatterplot");
 
             ComboBox::from_label("Line style")
                 .selected_text(line_style.to_string())
@@ -85,19 +90,26 @@ impl XYPlot {
                 let mut h = DefaultHasher::new();
                 h.write(label.as_bytes());
                 let hash = h.finish();
-                // let color = Color32::from_rgb(hash as u8, (hash >> 8) as u8, (hash >> 16) as u8);
 
                 use rand::prelude::*;
                 let mut rng = SmallRng::seed_from_u64(hash);
                 let hue = rng.sample(Uniform::new(0.0, 1.0));
                 let color: Color32 = Hsva::new(hue, 0.8, 0.8, 1.0).into();
 
-                plot_ui.line(
-                    Line::new(PlotPoints::Borrowed(y_data))
-                        .color(color)
-                        .style(self.line_style)
-                        .name(label),
-                );
+                if self.scatter_plot {
+                    plot_ui.points(
+                        Points::new(PlotPoints::Borrowed(y_data))
+                            .color(color)
+                            .name(label),
+                    );
+                } else {
+                    plot_ui.line(
+                        Line::new(PlotPoints::Borrowed(y_data))
+                            .color(color)
+                            .style(self.line_style)
+                            .name(label),
+                    );
+                }
             }
         })
         .response
