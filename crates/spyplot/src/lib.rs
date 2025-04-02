@@ -349,8 +349,7 @@ impl Spyplot {
                 self.bounds = self.bounds.scale_from_center(1.0 + delta);
             });
         }
-
-        ui.label(format!("viewport_size: {:?}", self.viewport_size));
+        ui.label(format!("bounds: {:?}", self.bounds));
 
         self.bounds = self
             .bounds

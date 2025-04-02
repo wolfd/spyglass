@@ -5,6 +5,7 @@ use slang::LazyFrame;
 use slang::PolarsError;
 use slang::PolarsResult;
 use spyplot::Spyplot;
+use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
@@ -198,32 +199,30 @@ impl TemplateApp {
 
     fn eval_and_plot(&mut self) -> Result<()> {
         if let PolarsResult::Ok(df) = &self.df {
-            self.xy_plot.x_data.clear();
-            self.xy_plot.y_series.clear();
-
+            let mut y_series: HashMap<String, Vec<f64>> = HashMap::new();
             for y_expr in self.y_exprs.iter() {
                 for y_trace in slang::eval(df, &y_expr)?.into_iter() {
-                    self.xy_plot.y_series.insert(y_trace.name, y_trace.data);
+                    y_series.insert(y_trace.name, y_trace.data);
                 }
             }
 
-            self.xy_plot.x_data = slang::eval(df, &self.x_expr)?
+            let x_data = slang::eval(df, &self.x_expr)?
                 .into_iter()
                 .next()
                 .ok_or(anyhow::anyhow!("No x_expr trace"))?
                 .data;
 
-            let points: Vec<[f32; 2]> = self
-                .xy_plot
-                .x_data
+            let points: Vec<[f32; 2]> = x_data
                 .iter()
-                .zip(self.xy_plot.y_series.iter().next().unwrap().1)
+                .zip(y_series.iter().next().unwrap().1)
                 .map(|(x, y)| [*x as f32, *y as f32])
                 .collect();
 
             let spyplot = self.spyplot.as_mut().unwrap();
             spyplot.line = spyplot::to_vertices(points);
             spyplot.dirty = true;
+
+            self.xy_plot.set_data(&x_data, &y_series);
         }
 
         Ok(())

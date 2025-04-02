@@ -1,33 +1,31 @@
 use egui::epaint::Hsva;
 use egui::{Color32, ComboBox, Response, TextWrapMode};
-use egui_plot::{CoordinatesFormatter, Corner, Legend, Line, LineStyle, Plot, PlotPoints};
+use egui_plot::{
+    CoordinatesFormatter, Corner, Legend, Line, LineStyle, Plot, PlotPoint, PlotPoints,
+};
 use rand::distributions::Uniform;
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hasher};
 
 #[derive(Clone, PartialEq)]
 pub struct XYPlot {
-    time: f64,
     proportional: bool,
     coordinates: bool,
     show_axes: bool,
     line_style: LineStyle,
 
-    pub x_data: Vec<f64>,
-    pub y_series: HashMap<String, Vec<f64>>,
+    plot_points: HashMap<String, Vec<PlotPoint>>,
 }
 
 impl Default for XYPlot {
     fn default() -> Self {
         Self {
-            time: 0.0,
             proportional: false,
             coordinates: true,
             show_axes: true,
             line_style: LineStyle::Solid,
 
-            x_data: vec![],
-            y_series: HashMap::new(),
+            plot_points: HashMap::new(),
         }
     }
 }
@@ -35,14 +33,12 @@ impl Default for XYPlot {
 impl XYPlot {
     pub fn options_ui(&mut self, ui: &mut egui::Ui) {
         let Self {
-            time: _,
             proportional,
             coordinates,
             show_axes,
             line_style,
 
-            x_data: _,
-            y_series: _,
+            plot_points: _,
         } = self;
 
         ui.menu_button("View", |ui| {
@@ -85,7 +81,7 @@ impl XYPlot {
             plot = plot.coordinates_formatter(Corner::LeftBottom, CoordinatesFormatter::default());
         }
         plot.show(ui, |plot_ui| {
-            for (label, y_data) in self.y_series.iter() {
+            for (label, y_data) in self.plot_points.iter() {
                 let mut h = DefaultHasher::new();
                 h.write(label.as_bytes());
                 let hash = h.finish();
@@ -96,19 +92,27 @@ impl XYPlot {
                 let hue = rng.sample(Uniform::new(0.0, 1.0));
                 let color: Color32 = Hsva::new(hue, 0.8, 0.8, 1.0).into();
 
-                let points: Vec<[f64; 2]> = self
-                    .x_data
-                    .iter()
-                    .zip(y_data.iter())
-                    .map(|(x, y)| [*x, *y])
-                    .collect();
-                let plot_points = Line::new(PlotPoints::new(points))
-                    .color(color)
-                    .style(self.line_style)
-                    .name(label);
-                plot_ui.line(plot_points);
+                plot_ui.line(
+                    Line::new(PlotPoints::Borrowed(y_data))
+                        .color(color)
+                        .style(self.line_style)
+                        .name(label),
+                );
             }
         })
         .response
+    }
+
+    pub fn set_data(&mut self, x_data: &Vec<f64>, y_series: &HashMap<String, Vec<f64>>) {
+        self.plot_points.clear();
+        for (label, y_data) in y_series.iter() {
+            let points: Vec<PlotPoint> = x_data
+                .iter()
+                .zip(y_data.iter())
+                .map(|(x, y)| PlotPoint { x: *x, y: *y })
+                .collect();
+
+            self.plot_points.insert(label.clone(), points);
+        }
     }
 }
