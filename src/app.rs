@@ -231,22 +231,31 @@ impl TemplateApp {
 
 fn describe_data_type(data_type: &DataType) -> String {
     match data_type {
-        DataType::Struct(_inner) => "struct",
-        DataType::List(_inner) => "list",
-        DataType::Boolean => "bool",
-        DataType::Int8 => "int8",
-        DataType::Int16 => "int16",
-        DataType::Int32 => "int32",
-        DataType::Int64 => "int64",
-        DataType::UInt8 => "uint8",
-        DataType::UInt16 => "uint16",
-        DataType::UInt32 => "uint32",
-        DataType::UInt64 => "uint64",
-        DataType::Float32 => "float32",
-        DataType::Float64 => "float64",
-        _ => "unknown",
+        DataType::Struct(_inner) => "struct".to_string(),
+        DataType::List(_inner) => "list".to_string(),
+        DataType::Boolean => "bool".to_string(),
+        DataType::Int8 => "int8".to_string(),
+        DataType::Int16 => "int16".to_string(),
+        DataType::Int32 => "int32".to_string(),
+        DataType::Int64 => "int64".to_string(),
+        DataType::UInt8 => "uint8".to_string(),
+        DataType::UInt16 => "uint16".to_string(),
+        DataType::UInt32 => "uint32".to_string(),
+        DataType::UInt64 => "uint64".to_string(),
+        DataType::Float32 => "float32".to_string(),
+        DataType::Float64 => "float64".to_string(),
+        DataType::Date => "Date".to_string(),
+        DataType::Datetime(time_unit, time_zone) => format!(
+            "DateTime({}{})",
+            time_unit.to_ascii(),
+            if let Some(time_zone) = time_zone {
+                format!(", {}", time_zone)
+            } else {
+                "".to_string()
+            }
+        ),
+        data_type => format!("{:?} [unsupported]", data_type),
     }
-    .to_string()
 }
 
 fn render_schema(ui: &mut egui::Ui, name: String, data_type: &DataType) {
