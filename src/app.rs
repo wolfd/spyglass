@@ -211,18 +211,18 @@ impl TemplateApp {
                 .next()
                 .ok_or(anyhow::anyhow!("No x_expr trace"))?
                 .data;
-
-            let points: Vec<[f64; 2]> = x_data
-                .iter()
-                .zip(y_series.iter().next().unwrap().1)
-                .map(|(x, y)| [*x, *y])
-                .collect();
-
-            let spyplot = self.spyplot.as_mut().unwrap();
-            spyplot.line = spyplot::to_vertices(points);
-            spyplot.dirty = true;
-
             self.xy_plot.set_data(&x_data, &y_series);
+            if y_series.len() != 0 {
+                let points: Vec<[f64; 2]> = x_data
+                    .iter()
+                    .zip(y_series.iter().next().unwrap().1)
+                    .map(|(x, y)| [*x, *y])
+                    .collect();
+
+                let spyplot = self.spyplot.as_mut().unwrap();
+                spyplot.line = spyplot::to_vertices(points);
+                spyplot.dirty = true;
+            }
         }
 
         Ok(())
