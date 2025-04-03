@@ -1,21 +1,16 @@
 use anyhow::Result;
-use egui_file::FileDialog;
 use slang::DataType;
 use slang::LazyFrame;
 use slang::PolarsError;
 use slang::PolarsResult;
 use spyplot::Spyplot;
 use std::collections::HashMap;
-use std::ffi::OsStr;
-use std::path::{Path, PathBuf};
 
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)] // if we add new fields, give them default values when deserializing old state
 pub struct TemplateApp {
-    opened_file: Option<PathBuf>,
-    #[serde(skip)]
-    open_file_dialog: Option<FileDialog>,
+    file_io: crate::file_io::SpyglassFileDialog,
 
     #[serde(skip)]
     df: PolarsResult<LazyFrame>,
@@ -37,8 +32,7 @@ pub struct TemplateApp {
 impl Default for TemplateApp {
     fn default() -> Self {
         Self {
-            opened_file: None,
-            open_file_dialog: None,
+            file_io: crate::file_io::SpyglassFileDialog::default(),
             df: Err(PolarsError::NoData("No data".into())),
             x_expr: "utime".to_owned(),
             y_exprs: vec!["position.data[0]".to_owned()],
@@ -61,16 +55,20 @@ impl TemplateApp {
         if let Some(storage) = cc.storage {
             let stored: TemplateApp =
                 eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
-            if let Some(opened_file) = &stored.opened_file {
+            let stored = if let Some(opened_file) = &stored.file_io.opened_file {
                 let df = slang::read_data(opened_file.clone());
-                return Self {
-                    opened_file: stored.opened_file.clone(),
+                Self {
+                    file_io: stored.file_io.copy_for_save(),
                     df,
-                    spyplot: Spyplot::new(cc),
                     ..stored
-                };
-            }
-            return stored;
+                }
+            } else {
+                stored
+            };
+            return Self {
+                spyplot: Spyplot::new(cc),
+                ..stored
+            };
         }
 
         Self {
@@ -100,31 +98,9 @@ impl eframe::App for TemplateApp {
                 // NOTE: no File->Quit on web pages!
                 let is_web = cfg!(target_arch = "wasm32");
                 if !is_web {
-                    ui.menu_button("File", |ui| {
-                        if ui.button("Quit").clicked() {
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                        }
-                        if ui.button("Load").clicked() {
-                            let filter = Box::new({
-                                let ext = Some(OsStr::new("parquet"));
-                                move |path: &Path| -> bool { path.extension() == ext }
-                            });
-                            let mut dialog = FileDialog::open_file(self.opened_file.clone())
-                                .show_files_filter(filter);
-                            dialog.open();
-                            self.open_file_dialog = Some(dialog);
-
-                            ui.close_menu();
-                        }
-                    });
-
-                    if let Some(dialog) = &mut self.open_file_dialog {
-                        if dialog.show(ctx).selected() {
-                            if let Some(file) = dialog.path() {
-                                self.opened_file = Some(file.to_path_buf());
-                                self.df = slang::read_data(self.opened_file.clone().unwrap());
-                            }
-                        }
+                    // maybe get new dataframe
+                    if let Some(df) = self.file_io.ui(ui, ctx) {
+                        self.df = df;
                     }
                 }
 
@@ -219,7 +195,7 @@ impl TemplateApp {
                     .map(|(x, y)| [*x, *y])
                     .collect();
 
-                let spyplot = self.spyplot.as_mut().unwrap();
+                let spyplot = self.spyplot.as_mut().expect("Spyplot not initialized!");
                 spyplot.line = spyplot::to_vertices(points);
                 spyplot.dirty = true;
             }

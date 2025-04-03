@@ -1,18 +1,15 @@
 [package]
-name = "slang"
+name = "mcap_polars"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-mcap_polars = { path = "../mcap_polars" }
-pest = "^2.7.12"
-pest_derive = "^2.7.12"
-lazy_static = "^1.5.0"
 polars = { version = "^0.44.2", features = [
     "lazy",
     "parquet",
     "serde",
     "ipc",
+    "json",
     "dtype-struct",
     "polars-ops",
     "list_to_struct",
@@ -23,3 +20,6 @@ polars = { version = "^0.44.2", features = [
 polars-lazy = "^0.44.2"
 polars-core = "^0.44.2"
 anyhow = "^1.0.93"
+mcap = "^0.16.0"
+memmap2 = "^0.9.5"
+camino = "^1.1.9"

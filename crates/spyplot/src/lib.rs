@@ -478,11 +478,3 @@ impl SpyplotRenderResources {
         render_pass.draw(0..self.vertex_count, 0..1);
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {}
-}

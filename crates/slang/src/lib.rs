@@ -9,11 +9,20 @@ pub use polars::prelude::PolarsError;
 pub use polars::prelude::{LazyFrame, ListToStructArgs, ToStruct};
 
 use anyhow::Result;
+use std::ffi::OsStr;
 use std::path::PathBuf;
 
 use polars::prelude::*;
 
 pub fn read_data(path: PathBuf) -> PolarsResult<LazyFrame> {
+    if path.extension() == Some(OsStr::new("mcap")) {
+        return PolarsResult::Ok(
+            // this is bad
+            mcap_polars::hacky_as_hell_mcap_to_dataframe(&path)
+                .map(|df| df.lazy())
+                .unwrap(),
+        );
+    }
     LazyFrame::scan_parquet(path, ScanArgsParquet::default())
 }
 
