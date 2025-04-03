@@ -212,10 +212,10 @@ impl TemplateApp {
                 .ok_or(anyhow::anyhow!("No x_expr trace"))?
                 .data;
 
-            let points: Vec<[f32; 2]> = x_data
+            let points: Vec<[f64; 2]> = x_data
                 .iter()
                 .zip(y_series.iter().next().unwrap().1)
-                .map(|(x, y)| [*x as f32, *y as f32])
+                .map(|(x, y)| [*x, *y])
                 .collect();
 
             let spyplot = self.spyplot.as_mut().unwrap();

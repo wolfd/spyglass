@@ -43,6 +43,16 @@ impl Bounds {
     pub fn center(&self) -> Point2<f64> {
         self.min + self.size().scale(0.5)
     }
+
+    // concept: we reorigin the GPU scene whenever we think f32 calculations are going to cause the scene to look bad
+    // next steps: we could also rescale the scene so that we can get to really high zoom levels
+    pub fn transform_to_origin(&self) -> na::Similarity2<f64> {
+        let mut transform = na::Similarity2::identity();
+        let center = self.center();
+        transform.append_translation_mut(&na::Translation2::new(-center.x, -center.y));
+        transform.append_scaling_mut(1.0 / self.size().max());
+        transform
+    }
 }
 
 #[cfg(test)]

@@ -4733,6 +4733,7 @@ dependencies = [
  "egui",
  "egui-wgpu",
  "egui_plot",
+ "float-cmp",
  "nalgebra",
  "nalgebra-glm",
 ]

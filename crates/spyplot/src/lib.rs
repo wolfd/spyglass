@@ -16,13 +16,14 @@ use eframe::{
 };
 use egui::Vec2;
 use lines::{Uniform, Vertex};
-use na::SimdValue;
 
 pub struct Spyplot {
     line_width: f32,
     feather: f32,
     viewport_size: Option<egui::Vec2>,
     bounds: bounds::Bounds,
+    reorigin: na::Similarity2<f64>,
+
     pub dirty: bool,
     pub line: Vec<Vertex>,
 }
@@ -185,6 +186,7 @@ impl Spyplot {
             feather: 0.1,
             viewport_size: None, // autosize
             bounds: Bounds::from(&[[-5.0, -5.0], [5.0, 5.0]]),
+            reorigin: na::Similarity::identity(),
             dirty: true,
             line,
         })
@@ -225,7 +227,12 @@ impl eframe::App for Spyplot {
     }
 }
 
-pub fn to_vertices(points: Vec<[f32; 2]>) -> Vec<Vertex> {
+fn get_normal(a: &na::Vector2<f64>, b: &na::Vector2<f64>) -> na::Vector2<f64> {
+    let tangent = b - a;
+    na::Vector2::new(tangent.y, -tangent.x)
+}
+
+pub fn to_vertices(points: Vec<[f64; 2]>) -> Vec<Vertex> {
     let mut vertices = Vec::new();
     let n = points.len();
 
@@ -233,21 +240,33 @@ pub fn to_vertices(points: Vec<[f32; 2]>) -> Vec<Vertex> {
         return vertices;
     }
 
-    for i in 0..n {
-        let prev = points[(i + n - 1) % n];
-        let next = points[(i + 1) % n];
-        let edge = Vec2::new(next[0] - prev[0], next[1] - prev[1]);
-        let normal = Vec2::new(-edge.y, edge.x).normalized();
+    let mut normal = get_normal(&points[0].into(), &points[1].into());
+    for i in 0..n - 1 {
+        let current: na::Vector2<f64> = points[i].into();
+        let next: na::Vector2<f64> = points[i + 1].into();
 
+        normal = get_normal(&current, &next).normalize();
+
+        // TODO(danny): angle bisector, extrude vectors, maybe bitpacking things
         vertices.push(Vertex {
-            position: [points[i][0], points[i][1]],
-            normal: [normal.x, normal.y],
+            position: [points[i][0] as f32, points[i][1] as f32],
+            normal: [normal.x as f32, normal.y as f32],
         });
         vertices.push(Vertex {
-            position: [points[i][0], points[i][1]],
-            normal: [-normal.x, -normal.y],
+            position: [points[i][0] as f32, points[i][1] as f32],
+            normal: [-normal.x as f32, -normal.y as f32],
         });
     }
+
+    // add one more set of vertices
+    vertices.push(Vertex {
+        position: [points[n - 1][0] as f32, points[n - 1][1] as f32],
+        normal: [normal.x as f32, normal.y as f32],
+    });
+    vertices.push(Vertex {
+        position: [points[n - 1][0] as f32, points[n - 1][1] as f32],
+        normal: [-normal.x as f32, -normal.y as f32],
+    });
 
     vertices
 }
@@ -354,24 +373,42 @@ impl Spyplot {
                     .sum();
                 delta /= 100.0; // TODO(danny): I recall that different platforms have wildly different ideas for scrolling counts
 
-                let zoom_center = if let Some(pointer_pos) = i.pointer.latest_pos() {
-                    let rect_relative_pos = (pointer_pos - rect.min) / rect.size();
-                    self.bounds.unit_position_to_plot_position(&na::Point2::new(
-                        rect_relative_pos.x as f64,
-                        1.0 - rect_relative_pos.y as f64, // y is inverted relative to plot
-                    ))
-                } else {
-                    self.bounds.center()
-                };
+                if delta != 0.0 {
+                    let zoom_center = if let Some(pointer_pos) = i.pointer.latest_pos() {
+                        let rect_relative_pos = (pointer_pos - rect.min) / rect.size();
+                        self.bounds.unit_position_to_plot_position(&na::Point2::new(
+                            rect_relative_pos.x as f64,
+                            1.0 - rect_relative_pos.y as f64, // y is inverted relative to plot
+                        ))
+                    } else {
+                        self.bounds.center()
+                    };
 
-                self.bounds = self.bounds.scale_from_point(
-                    &zoom_center,
-                    &na::Vector2::new(1.0 + delta as f64, 1.0 + delta as f64),
-                );
+                    self.bounds = self.bounds.scale_from_point(
+                        &zoom_center,
+                        &na::Vector2::new(1.0 + delta as f64, 1.0 + delta as f64),
+                    );
+                }
+
+                // reset to origin with same zoom when A is pressed
+                if i.key_pressed(egui::Key::A) {
+                    self.bounds = self.bounds.translate(&-self.bounds.center().coords);
+                }
+
+                if i.key_pressed(egui::Key::O) {
+                    self.reorigin = self.bounds.transform_to_origin();
+                    self.dirty = true;
+                }
             });
         }
 
-        ui.label(format!("bounds: {:?}", self.bounds));
+        use float_cmp::Ulps;
+        ui.label(format!("{:?}", self.bounds));
+        ui.label(format!(
+            "ULPs f64 {} f32 {}",
+            self.bounds.min.x.ulps(&self.bounds.max.x),
+            (self.bounds.min.x as f32).ulps(&(self.bounds.max.x as f32))
+        ));
 
         let drag: [f32; 2] = (response.drag_motion() * egui::Vec2 { x: -1.0, y: 1.0 }).into();
         let translate_by = na::Vector2::from(drag).cast().component_mul(&motion_scale);
