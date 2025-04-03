@@ -3,20 +3,26 @@
 // too many draw operations.
 // I'm thinking using 4096 points per chunk, and then we can draw 4096 points at a time.
 // The final chunk will be allocated to that size, but will basically get frozen once it reaches that size.
+extern crate nalgebra as na;
+extern crate nalgebra_glm as glm;
+
+pub mod bounds;
 pub mod lines;
 
+use bounds::Bounds;
 use eframe::{
     egui_wgpu::wgpu::util::DeviceExt,
     egui_wgpu::{self, wgpu},
 };
 use egui::Vec2;
 use lines::{Uniform, Vertex};
+use na::SimdValue;
 
 pub struct Spyplot {
     line_width: f32,
     feather: f32,
     viewport_size: Option<egui::Vec2>,
-    bounds: egui::Rect,
+    bounds: bounds::Bounds,
     pub dirty: bool,
     pub line: Vec<Vertex>,
 }
@@ -178,7 +184,7 @@ impl Spyplot {
             line_width: 0.006,
             feather: 0.1,
             viewport_size: None, // autosize
-            bounds: egui::Rect::from_center_size(egui::pos2(0., 0.), egui::vec2(10., 10.)),
+            bounds: Bounds::from(&[[-5.0, -5.0], [5.0, 5.0]]),
             dirty: true,
             line,
         })
@@ -268,7 +274,7 @@ pub fn to_vertices(points: Vec<[f32; 2]>) -> Vec<Vertex> {
 // which can be used to issue draw commands.
 struct SpyplotCallback {
     viewport_size: egui::Vec2,
-    bounds: egui::Rect,
+    bounds: Bounds,
     line_width: f32,
     feather: f32,
 
@@ -327,7 +333,10 @@ impl Spyplot {
         let (rect, response) = ui.allocate_exact_size(real_size, egui::Sense::drag());
         self.viewport_size = Some(rect.size());
 
-        let motion_scale = self.bounds.size() / real_size;
+        assert_eq!(real_size, rect.size());
+
+        let size_vec: na::Vector2<f64> = na::Vector2::new(real_size.x as f64, real_size.y as f64);
+        let motion_scale = self.bounds.size().component_div(&size_vec);
         let mut delta: f32 = 0.;
         if response.hovered() {
             ui.input(|i| {
@@ -345,15 +354,28 @@ impl Spyplot {
                     .sum();
                 delta /= 100.0; // TODO(danny): I recall that different platforms have wildly different ideas for scrolling counts
 
-                // TODO(danny): scale from cursor
-                self.bounds = self.bounds.scale_from_center(1.0 + delta);
+                let zoom_center = if let Some(pointer_pos) = i.pointer.latest_pos() {
+                    let rect_relative_pos = (pointer_pos - rect.min) / rect.size();
+                    self.bounds.unit_position_to_plot_position(&na::Point2::new(
+                        rect_relative_pos.x as f64,
+                        1.0 - rect_relative_pos.y as f64, // y is inverted relative to plot
+                    ))
+                } else {
+                    self.bounds.center()
+                };
+
+                self.bounds = self.bounds.scale_from_point(
+                    &zoom_center,
+                    &na::Vector2::new(1.0 + delta as f64, 1.0 + delta as f64),
+                );
             });
         }
+
         ui.label(format!("bounds: {:?}", self.bounds));
 
-        self.bounds = self
-            .bounds
-            .translate(response.drag_motion() * egui::Vec2 { x: -1.0, y: 1.0 } * motion_scale);
+        let drag: [f32; 2] = (response.drag_motion() * egui::Vec2 { x: -1.0, y: 1.0 }).into();
+        let translate_by = na::Vector2::from(drag).cast().component_mul(&motion_scale);
+        self.bounds = self.bounds.translate(&translate_by);
 
         ui.painter().add(egui_wgpu::Callback::new_paint_callback(
             rect,
@@ -385,8 +407,8 @@ impl SpyplotRenderResources {
         let line_width = data.line_width;
         let feather = data.feather;
 
-        let grid_pitch_x = 10.0_f32.powf(bounds.x_range().span().log10().round() - 1.0);
-        let grid_pitch_y = 10.0_f32.powf(bounds.y_range().span().log10().round() - 1.0);
+        let grid_pitch_x = 10.0_f64.powf((bounds.max.x - bounds.min.x).log10().round() - 1.0);
+        let grid_pitch_y = 10.0_f64.powf((bounds.max.y - bounds.min.y).log10().round() - 1.0);
 
         // update uniform buffer
         queue.write_buffer(
@@ -394,9 +416,9 @@ impl SpyplotRenderResources {
             0,
             bytemuck::cast_slice(&[Uniform {
                 viewport_size: [data.viewport_size.x, data.viewport_size.y],
-                x_bounds: [bounds.x_range().min, bounds.x_range().max],
-                y_bounds: [bounds.y_range().min, bounds.y_range().max],
-                grid_pitch: [grid_pitch_x, grid_pitch_y],
+                x_bounds: [bounds.min.x as f32, bounds.max.x as f32],
+                y_bounds: [bounds.min.y as f32, bounds.max.y as f32],
+                grid_pitch: [grid_pitch_x as f32, grid_pitch_y as f32],
                 line_width,
                 feather,
             }]),

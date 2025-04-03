@@ -6,7 +6,7 @@ pub struct Vertex {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Default, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Clone, Copy, Default, bytemuck::Pod, bytemuck::Zeroable, Debug)]
 pub struct Uniform {
     pub viewport_size: [f32; 2],
     pub x_bounds: [f32; 2],
